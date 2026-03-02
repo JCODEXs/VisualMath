@@ -261,7 +261,7 @@ export default function HomePage() {
         </div>
 
         {/* Leaderboard reducido */}
-        <div style={styles.leaderboard}>
+        <div style={styles.leaderboard} className="hidden md:block">
           <LeaderboardWidget limit={3} showViewAll />
         </div>
 
