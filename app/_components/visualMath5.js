@@ -970,7 +970,7 @@ export default function App() {
           </div>
 
           {/* Quantity color legend */}
-          <QuantityLegend a={a} b={b} gcols={gcols} grows={grows} />
+          {/* <QuantityLegend a={a} b={b} gcols={gcols} grows={grows} /> */}
 
           {/* ── Grouping controls ── */}
           <div style={S.ctrlPanel}>
@@ -1277,6 +1277,7 @@ export default function App() {
 const S = {
   root: {
     minHeight: "100vh",
+    width: "100%",
     background: "#0b0b18",
     fontFamily: "'Nunito','Trebuchet MS',sans-serif",
     color: "#dde0f0",
