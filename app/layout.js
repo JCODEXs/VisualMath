@@ -4,6 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import RewardOverlay from "./_components/rewardOverlay";
 import { usePathname } from "next/navigation";
+import { FocusCyberAudio } from "./soundEngine/ciberFocus";
+import { CyberArcadeAudio } from "./soundEngine/ciberPunkAudio";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -29,72 +31,70 @@ const audioMap = {
 
 export default function RootLayout({ children }) {
   const audioRef = useRef(null);
-  const [isMuted, setIsMuted] = useState(false);
+  const [userInteracted, setUserInteracted] = useState(false);
   const pathname = usePathname();
 
-  // Inicializar audio al primer clic (como antes)
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  const cyberAudioRef = useRef(null); // para la instancia de FocusCyberAudio
 
-    const startAudio = () => {
-      audio.volume = 0.5;
-      audio.play().catch(() => {});
-      window.removeEventListener("click", startAudio);
+  // Determinar qué audio debe sonar según la ruta
+  const isCyberRoute = pathname === "/shapesGame"; // cambia esto a tu ruta deseada
+
+  // Efecto para manejar la interacción del usuario (click)
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      setUserInteracted(true);
+      window.removeEventListener("click", handleUserInteraction);
     };
-    window.addEventListener("click", startAudio);
-    return () => window.removeEventListener("click", startAudio);
+    window.addEventListener("click", handleUserInteraction);
+    return () => window.removeEventListener("click", handleUserInteraction);
   }, []);
 
-  // Cambiar la fuente cuando cambia la ruta
+  // Efecto para controlar el audio según la ruta y la interacción
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const src = audioMap[pathname] || audioMap["/"]; // fallback a la ruta raíz
-    if (audio.src !== src) {
-      audio.src = src;
-      // Si ya está reproduciendo, seguir reproduciendo con la nueva fuente
-      // (al cambiar src, se detiene automáticamente, así que podemos intentar reproducir)
-      audio.load();
-      if (!isMuted) {
-        audio
-          .play()
-          .catch((e) =>
-            console.log("Autoplay bloqueado, esperando interacción", e),
-          );
+    if (!userInteracted) return; // esperar a que el usuario haga click
+
+    if (isCyberRoute) {
+      // Ruta cyber: usar FocusCyberAudio
+      if (!cyberAudioRef.current) {
+        cyberAudioRef.current = new CyberArcadeAudio();
+        // Reanudar el AudioContext si está suspendido (requiere interacción)
+        if (cyberAudioRef.current.ctx.state === "suspended") {
+          cyberAudioRef.current.ctx.resume();
+        }
+        cyberAudioRef.current.start();
+      }
+      // Si había un MP3 sonando, lo detenemos
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    } else {
+      // Ruta normal: usar MP3
+      if (cyberAudioRef.current) {
+        cyberAudioRef.current.stop();
+        cyberAudioRef.current = null;
+      }
+      if (audioRef.current) {
+        audioRef.current.volume = 0.5;
+        audioRef.current.play().catch(() => {});
       }
     }
-  }, [pathname, isMuted]);
 
-  const toggleMute = () => {
-    if (audioRef.current) {
-      audioRef.current.muted = !audioRef.current.muted;
-      setIsMuted(!audioRef.current.muted);
-    }
-  };
+    // Limpieza al desmontar el componente o cambiar de ruta
+    return () => {
+      if (cyberAudioRef.current) {
+        cyberAudioRef.current.stop();
+        cyberAudioRef.current = null;
+      }
+    };
+  }, [isCyberRoute, userInteracted]);
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <audio ref={audioRef} loop preload="auto" />
-        <button
-          onClick={toggleMute}
-          style={{
-            position: "fixed",
-            bottom: 20,
-            right: 20,
-            zIndex: 1000,
-            padding: "10px 15px",
-            background: "#333",
-            color: "#fff",
-            border: "none",
-            borderRadius: 5,
-            cursor: "pointer",
-          }}
-        >
-          {isMuted ? "🔇" : "🔊"}
-        </button>
+
         {children}
         <RewardOverlay />
       </body>
