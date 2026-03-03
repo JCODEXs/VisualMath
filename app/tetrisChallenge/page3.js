@@ -31,7 +31,6 @@ import {
   useImperativeHandle,
 } from "react";
 import * as THREE from "three";
-import { useUserStore } from "../store/userStore";
 
 // =============================================================================
 // §1 — CONFIGURATION & SCORING
@@ -39,23 +38,23 @@ import { useUserStore } from "../store/userStore";
 
 export const BOX_PRESETS = {
   S: { W: 9, D: 9, H: 20, label: "9 × 9 × 20" },
-  L: { W: 20, D: 20, H: 30, label: "20 × 20 × 30" },
+  L: { W: 12, D: 12, H: 25, label: "12 × 12 × 25" },
 };
 
-const CUBE_SIZE = 0.92;
+const CUBE_SIZE = 0.96;
 const MAX_PIECE_CELLS = 64;
 const VERT_THRESH_RATIO = 0.45;
 const GHOST_OPACITY = 0.59;
-const DEFAULT_PLAYER = "JUGADOR";
+const DEFAULT_PLAYER = "juan";
 
-const DROP_SPEEDS = [1900, 720, 570, 450, 350, 270, 200, 145, 100, 70];
+const DROP_SPEEDS = [1900, 1720, 1570, 1450, 1350, 1270, 200, 145, 100, 70];
 const dropSpeed = (level) =>
   DROP_SPEEDS[Math.min(level - 1, DROP_SPEEDS.length - 1)];
 
 const SCORE = {
-  layer: (W, D) => W * D * 10,
+  layer: (W, D) => W * D * 100,
   diagonal: (W) => W * 25,
-  column: (h) => h * 8, // h = cells cleared per column
+  column: (h) => h * 30, // h = cells cleared per column
   harddrop: (dist) => dist,
 };
 
@@ -69,9 +68,802 @@ const AXES = ["Y", "X", "Z"];
 //   ║  Format: { id, name, color, cells: [[x,y,z], ...] }                ║
 //   ║  y = vertical axis (0 = bottom of piece, grows upward)             ║
 //   ╚══════════════════════════════════════════════════════════════════════╝
+
+function makeGrid(w, h, z = 0) {
+  const cubes = [];
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) cubes.push([x, y, z]);
+  return cubes;
+}
+
+function makeTriangle(base, z = 0) {
+  const cubes = [];
+  for (let i = 0; i < base; i++)
+    for (let j = 0; j <= i; j++) cubes.push([j, base - 1 - i, z]); // filas decrecientes en y
+  return cubes;
+}
+
+function makeBox(w, d, h) {
+  const cubes = [];
+  for (let x = 0; x < w; x++)
+    for (let y = 0; y < d; y++)
+      for (let z = 0; z < h; z++) cubes.push([x, y, z]);
+  return cubes;
+}
 const USER_PIECES = [
-  // { id: "my_I4", name: "Barra", color: "#E84040",
-  //   cells: [[0,0,0],[1,0,0],[2,0,0],[3,0,0]] },
+  // ── 1. Figuras originales (15) ───────────────────────────────────────────
+  {
+    id: "unit",
+    name: "Unidad",
+    count: 1,
+    color: "#FF6B6B", // count 1 → key 1
+    cells: [[0, 0, 0]],
+  },
+  {
+    id: "domino",
+    name: "Dominó",
+    count: 2,
+    color: "#FF9F43", // count 2 → key 2
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+    ],
+  },
+  {
+    id: "trio",
+    name: "Trío",
+    count: 3,
+    color: "#FECA57", // count 3 → key 3
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+    ],
+  },
+  {
+    id: "square4",
+    name: "Cuadrado 2×2",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: makeGrid(2, 2),
+  },
+  {
+    id: "lshape",
+    name: "Ele (L)",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 0, 1],
+    ],
+  },
+  {
+    id: "Ishape",
+    name: "I",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [3, 0, 0],
+    ],
+  },
+  {
+    id: "Ishape5",
+    name: "I",
+    count: 5,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [3, 0, 0],
+      [4, 0, 0],
+    ],
+  },
+  {
+    id: "lshape2",
+    name: "Ele (L2)",
+    count: 8,
+    color: "#FF6EB4", // count 8 → key 8
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 0, 1],
+      [0, 1, 0],
+      [1, 1, 0],
+      [2, 1, 0],
+      [2, 1, 1],
+    ],
+  },
+  {
+    id: "cross",
+    name: "Cruz  T",
+    count: 5,
+    color: "#00D2D3", // count 5 → key 5
+    cells: [
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+    ],
+  },
+  {
+    id: "cross",
+    name: "Cruz  T2u",
+    count: 10,
+    color: "#E74C3C", // count 10 → key 10
+    cells: [
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+      [0, 1, 1],
+      [0, 1, 0],
+      [1, 1, 1],
+      [2, 1, 1],
+      [0, 1, 2],
+    ],
+  },
+  //   {
+  //     id: "crosser",
+  //     name: "Cruz  T3",
+  //     count: 15,
+  //     color: "#9B59B6", // count 15 → (15-1)%12+1 = 3 → key 3? (15 mod 12 = 3) → #FECA57
+  //     // Nota: 15 % 12 = 3, pero ajustamos: ((15-1)%12)+1 = 3, correcto.
+  //     color: "#FECA57",
+  //     cells: [
+  //       [0, 0, 1],
+  //       [0, 0, 0],
+  //       [1, 0, 1],
+  //       [2, 0, 1],
+  //       [0, 0, 2],
+  //       [0, 1, 1],
+  //       [0, 1, 0],
+  //       [1, 1, 1],
+  //       [2, 1, 1],
+  //       [0, 1, 2],
+  //       [0, 2, 1],
+  //       [0, 2, 0],
+  //       [1, 2, 1],
+  //       [2, 2, 1],
+  //       [0, 2, 2],
+  //     ],
+  //   },
+  //   {
+  //     id: "pyramid",
+  //     name: "Pirámide",
+  //     count: 5,
+  //     color: "#00D2D3", // count 5 → key 5
+  //     cells: [
+  //       [0, 0, 0],
+  //       [1, 0, 0],
+  //       [0, 0, 1],
+  //       [1, 0, 1],
+  //       [0, 1, 0],
+  //     ],
+  //   },
+  {
+    id: "rect6",
+    name: "Rectángulo 2×3",
+    count: 6,
+    color: "#54A0FF", // count 6 → key 6
+    cells: makeGrid(3, 2),
+  },
+  // {
+  //   id: "stair6",
+  //   name: "Escalera 1+2+3",
+  //   count: 6,
+  //   color: "#54A0FF", // count 6 → key 6
+  //   cells: [
+  //     [0, 0, 2],
+  //     [0, 0, 1],
+  //     [1, 0, 1],
+  //     [0, 0, 0],
+  //     [1, 0, 0],
+  //     [2, 0, 0],
+  //   ],
+  // },
+  {
+    id: "arch",
+    name: "Arco ∪",
+    count: 7,
+    color: "#5F27CD", // count 7 → key 7
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [1, 2, 0],
+      [2, 2, 0],
+      [2, 1, 0],
+      [2, 0, 0],
+    ],
+  },
+  //   {
+  //     id: "arch3",
+  //     name: "Arco 3∪",
+  //     count: 21,
+  //     color: "#F39C12", // count 21 → (21-1)%12+1 = 9? 21 mod 12 = 9 → #2ECC71? No: ((21-1)%12)+1 = 9, key 9 → #2ECC71
+  //     // Recalculemos: (21-1)=20, 20%12=8, +1=9 → key 9: #2ECC71
+  //     color: "#2ECC71",
+  //     cells: [
+  //       [0, 0, 0],
+  //       [0, 1, 0],
+  //       [0, 2, 0],
+  //       [1, 2, 0],
+  //       [2, 2, 0],
+  //       [2, 1, 0],
+  //       [2, 0, 0],
+  //       [0, 0, 1],
+  //       [0, 1, 1],
+  //       [0, 2, 1],
+  //       [1, 2, 1],
+  //       [2, 2, 1],
+  //       [2, 1, 1],
+  //       [2, 0, 1],
+  //       [0, 0, 2],
+  //       [0, 1, 2],
+  //       [0, 2, 2],
+  //       [1, 2, 2],
+  //       [2, 2, 2],
+  //       [2, 1, 2],
+  //       [2, 0, 2],
+  //     ],
+  //   },
+  {
+    id: "arch2",
+    name: "Arco 2∪",
+    count: 14,
+    color: "#FF9F43", // count 14 → (14-1)%12+1 = 2 → key 2: #FF9F43
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [1, 2, 0],
+      [2, 2, 0],
+      [2, 1, 0],
+      [2, 0, 0],
+      [0, 0, 1],
+      [0, 1, 1],
+      [0, 2, 1],
+      [1, 2, 1],
+      [2, 2, 1],
+      [2, 1, 1],
+      [2, 0, 1],
+    ],
+  },
+  {
+    id: "zigzag",
+    name: "Zigzag 3D",
+    count: 7,
+    color: "#5F27CD", // count 7 → key 7
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [0, 3, 0],
+      [0, 4, 0],
+      [0, 5, 0],
+      [0, 6, 0],
+    ],
+  },
+  {
+    id: "cube8",
+    name: "Cubo 2³",
+    count: 8,
+    color: "#FF6EB4", // count 8 → key 8
+    cells: makeBox(2, 2, 2),
+  },
+  {
+    id: "square9",
+    name: "Cuadrado 3×3",
+    count: 9,
+    color: "#2ECC71", // count 9 → key 9
+    cells: makeGrid(3, 3),
+  },
+  {
+    id: "triangle10",
+    name: "Triángulo T₄",
+    count: 10,
+    color: "#E74C3C", // count 10 → key 10
+    cells: makeTriangle(4),
+  },
+  {
+    id: "dozen",
+    name: "Docena 3×4",
+    count: 12,
+    color: "#F39C12", // count 12 → key 12
+    cells: makeGrid(4, 3),
+  },
+  {
+    id: "dozen",
+    name: "Docena 2×6",
+    count: 12,
+    color: "#F39C12", // count 12 → key 12
+    cells: makeGrid(2, 6),
+  },
+
+  // ── 2. Nuevas figuras (35) ───────────────────────────────────────────────
+  //   {
+  //     id: "esquina4",
+  //     name: "Esquina 3D",
+  //     count: 4,
+  //     color: "#48CA8B", // count 4 → key 4
+  //     cells: [
+  //       [0, 0, 0],
+  //       [1, 0, 0],
+  //       [1, 1, 0],
+  //       [1, 1, 1],
+  //     ],
+  //   },
+  {
+    id: "tee5",
+    name: "T 3D",
+    count: 5,
+    color: "#00D2D3", // count 5 → key 5
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [1, 1, 0],
+      [1, 0, 1],
+    ],
+  },
+  //   {
+  //     id: "tee6",
+  //     name: "T 3D L",
+  //     count: 6,
+  //     color: "#54A0FF", // count 6 → key 6
+  //     cells: [
+  //       [0, 0, 0],
+  //       [1, 0, 0],
+  //       [2, 0, 0],
+  //       [1, 1, 0],
+  //       [1, 0, 1],
+  //       [1, 0, 2],
+  //     ],
+  //   },
+  //   {
+  //     id: "tee7",
+  //     name: "3D axis",
+  //     count: 7,
+  //     color: "#5F27CD", // count 7 → key 7
+  //     cells: [
+  //       [0, 0, 0],
+  //       [-1, 0, 0],
+  //       [1, 0, 0],
+  //       [1, 2, 0],
+  //       [1, 1, 0],
+  //       [1, 0, 1],
+  //       [1, 0, 2],
+  //     ],
+  //   },
+  //   {
+  //     id: "cruz3d6",
+  //     name: "Cruz 3D",
+  //     count: 6,
+  //     color: "#54A0FF", // count 6 → key 6
+  //     cells: [
+  //       [1, 1, 1],
+  //       [0, 1, 1],
+  //       [2, 1, 1],
+  //       [1, 0, 1],
+  //       [1, 2, 1],
+  //       [1, 1, 2],
+  //     ],
+  //   },
+  // {
+  //   id: "escalera7",
+  //   name: "Escalera 7",
+  //   count: 7,
+  //   color: "#5F27CD", // count 7 → key 7
+  //   cells: [
+  //     [0, 0, 0],
+  //     [1, 0, 0],
+  //     [1, 1, 0],
+  //     [2, 1, 0],
+  //     [2, 1, 1],
+  //     [3, 1, 1],
+  //     [3, 2, 1],
+  //   ],
+  // },
+  {
+    id: "anillo8",
+    name: "Anillo",
+    count: 8,
+    color: "#FF6EB4", // count 8 → key 8
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [1, 2, 0],
+      [0, 2, 0],
+      [0, 1, 0],
+    ],
+  },
+  {
+    id: "anillo16",
+    name: "Anillox2",
+    count: 16,
+    color: "#F39C12", // count 16 → (16-1)%12+1 = 4 → key 4? (16 mod 12 = 4) → #48CA8B? Recalcular: (16-1)=15, 15%12=3, +1=4 → key 4: #48CA8B
+    color: "#48CA8B",
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [1, 2, 0],
+      [0, 2, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [2, 1, 1],
+      [2, 2, 1],
+      [1, 2, 1],
+      [0, 2, 1],
+      [0, 1, 1],
+    ],
+  },
+  //   {
+  //     id: "corner_3d",
+  //     name: "esquina  ",
+  //     count: 10,
+  //     color: "#E74C3C", // count 10 → key 10
+  //     cells: [
+  //       [0, 0, 0],
+  //       [0, 1, 0],
+  //       [1, 1, 1],
+  //       [0, 0, 1],
+  //       [-1, 0, 0],
+  //       [1, 0, 0],
+  //       [1, 2, 0],
+  //       [1, 1, 0],
+  //       [1, 0, 1],
+  //       [1, 0, 2],
+  //     ],
+  //   },
+  // {
+  //   id: "corner_3d F",
+  //   name: "esquina Completa  ",
+  //   count: 11,
+  //   color: "#9B59B6", // count 11 → key 11
+  //   cells: [
+  //     [0, 0, 0],
+  //     [0, 1, 0],
+  //     [1, 1, 1],
+  //     [0, 0, 1],
+  //     [0, 1, 1],
+  //     [-1, 0, 0],
+  //     [1, 0, 0],
+  //     [1, 2, 0],
+  //     [1, 1, 0],
+  //     [1, 0, 1],
+  //     [1, 0, 2],
+  //   ],
+  // },
+  // 22 omitido (estaba comentado)
+  // 23
+  {
+    id: "rect11_falta",
+    name: "Rectángulo 3×4 incompleto",
+    count: 11,
+    color: "#9B59B6", // count 11 → key 11
+    cells: (() => {
+      const c = makeGrid(3, 4); // 12 cubos
+      return c.filter(([x, y]) => !(x === 2 && y === 3)); // quita (2,3,0)
+    })(),
+  },
+  // 24
+  {
+    id: "cajon12",
+    name: "Cajón 2×2×3",
+    count: 12,
+    color: "#F39C12", // count 12 → key 12
+    cells: makeBox(2, 2, 3),
+  },
+  //   {
+  //     id: "cajon18B",
+  //     name: "Cajón 4×4 +2",
+  //     count: 18,
+  //     color: "#00D2D3", // count 18 → (18-1)%12+1 = 6 → key 6: #54A0FF? (18%12=6) → key 6: #54A0FF
+  //     color: "#54A0FF",
+  //     cells: (() => [...makeGrid(4, 4), [0, 0, 1], [1, 0, 1]])(),
+  //   },
+  // 25
+  //   {
+  //     id: "shape13",
+  //     name: "13 plano",
+  //     count: 13,
+  //     color: "#FF6B6B", // count 13 → (13-1)%12+1 = 1 → key 1: #FF6B6B
+  //     cells: (() => [
+  //       ...makeGrid(3, 3),
+  //       [0, 0, 1],
+  //       [1, 0, 1],
+  //       [2, 0, 1],
+  //       [2, 1, 1],
+  //     ])(),
+  //   },
+  // 26
+  {
+    id: "rect14",
+    name: "Rectángulo 2×7",
+    count: 14,
+    color: "#FF9F43", // count 14 → key 2: #FF9F43
+    cells: makeGrid(7, 2),
+  },
+  {
+    id: "3x3+5",
+    name: "Rectángulo 3x3+5",
+    count: 14,
+    color: "#FF9F43", // count 14 → key 2: #FF9F43
+    cells: (() => [
+      ...makeGrid(3, 3),
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 1, 1],
+      [1, 1, 1],
+    ])(),
+  },
+  // 27
+  //   {
+  //     id: "triang15",
+  //     name: "Triángulo T₅",
+  //     count: 15,
+  //     color: "#FECA57", // count 15 → key 3: #FECA57
+  //     cells: makeTriangle(5),
+  //   },
+  // 28
+  {
+    id: "cuadrado16",
+    name: "Cuadrado 4×4",
+    count: 16,
+    color: "#48CA8B", // count 16 → key 4: #48CA8B
+    cells: makeGrid(4, 4),
+  },
+  {
+    id: "prisma16",
+    name: "Prisma 4×2x2",
+    count: 16,
+    color: "#48CA8B", // count 16 → key 4: #48CA8B
+    cells: makeBox(4, 2, 2),
+  },
+  // 29
+  //   {
+  //     id: "primo17",
+  //     name: "Línea 17",
+  //     count: 17,
+  //     color: "#00D2D3", // count 17 → key 5: #00D2D3
+  //     cells: (() => [...makeGrid(5, 3), [0, 0, 1], [1, 0, 1]])(),
+  //   },
+  //   {
+  //     id: "primo17sq",
+  //     name: "cuadrado 17",
+  //     count: 17,
+  //     color: "#00D2D3", // count 17 → key 5: #00D2D3
+  //     cells: (() => [...makeGrid(5, 3), [0, 0, 1], [1, 0, 1]])(),
+  //   },
+  {
+    id: "anillo16",
+    name: "Anillox2 +1 ",
+    count: 17,
+    color: "#00D2D3", // count 17 → key 5: #00D2D3
+    cells: [
+      [0, 0, 0],
+      [1, 1, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [1, 2, 0],
+      [0, 2, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [2, 1, 1],
+      [2, 2, 1],
+      [1, 2, 1],
+      [0, 2, 1],
+      [0, 1, 1],
+    ],
+  },
+  // 30
+  {
+    id: "cajon18",
+    name: "Cajón 2×3×3",
+    count: 18,
+    color: "#54A0FF", // count 18 → key 6: #54A0FF
+    cells: makeBox(2, 3, 3),
+  },
+  // 31
+  //   {
+  //     id: "primo19",
+  //     name: "Línea 19",
+  //     count: 19,
+  //     color: "#5F27CD", // count 19 → key 7: #5F27CD
+  //     cells: (() => [...makeBox(3, 2, 2), [1, 1, 2]])(),
+  //   },
+  //   {
+  //     id: "primo19B",
+  //     name: "rectangulo 5x3 + 4 ",
+  //     count: 19,
+  //     color: "#5F27CD", // count 19 → key 7: #5F27CD
+  //     cells: (() => [
+  //       ...makeGrid(5, 3),
+  //       [0, 0, 1],
+  //       [1, 0, 1],
+  //       [2, 0, 1],
+  //       [3, 0, 1],
+  //     ])(),
+  //   },
+  {
+    id: "primo19a",
+    name: "Prisma 3x3x2 + 1 ",
+    count: 19,
+    color: "#5F27CD", // count 19 → key 7: #5F27CD
+    cells: (() => [...makeBox(3, 3, 2), [1, 1, 2]])(),
+  },
+  // 32
+  {
+    id: "cajon20",
+    name: "Cajón 2×2×5",
+    count: 20,
+    color: "#FF6EB4", // count 20 → key 8: #FF6EB4
+    cells: makeBox(2, 2, 5),
+  },
+  {
+    id: "cajon20A",
+    name: "Cudrado 4×5",
+    count: 20,
+    color: "#FF6EB4", // count 20 → key 8: #FF6EB4
+    cells: makeGrid(4, 5),
+  },
+  // 33
+  {
+    id: "triang21",
+    name: "Triángulo T₆",
+    count: 21,
+    color: "#2ECC71", // count 21 → key 9: #2ECC71
+    cells: makeTriangle(6),
+  },
+  {
+    id: "Prisma21",
+    name: "cuadrado 21",
+    count: 21,
+    color: "#2ECC71", // count 21 → key 9: #2ECC71
+    cells: makeGrid(3, 7),
+  },
+  //   {
+  //     id: "Prisma21S",
+  //     name: "suma de dos rectangulos",
+  //     count: 21,
+  //     color: "#2ECC71", // count 21 → key 9: #2ECC71
+  //     cells: (() => [
+  //       ...makeGrid(3, 4).map(([x, y]) => [x, y, 0]),
+  //       ...makeGrid(3, 3).map(([x, y]) => [x, y, 1]),
+  //     ])(),
+  //   },
+  // 34
+  {
+    id: "rect22",
+    name: "Rectángulo 2×11",
+    count: 22,
+    color: "#E74C3C", // count 22 → key 10: #E74C3C
+    cells: (() => [
+      ...makeGrid(9, 2).map(([x, y]) => [x, y, 0]),
+      ...makeGrid(2, 2).map(([x, y]) => [x, y, 1]),
+    ])(),
+  },
+  {
+    id: "Cajon22",
+    name: "cajon 2×5X2",
+    count: 22,
+    color: "#E74C3C", // count 22 → key 10: #E74C3C
+    cells: (() => [...makeBox(2, 5, 2), [0, 0, 2], [1, 0, 2]])(),
+  },
+  // 35
+  {
+    id: "cajon24",
+    name: "Cajón 2×3×4",
+    count: 24,
+    color: "#F39C12", // count 24 → key 12: #F39C12? (24 mod 12 = 0) → key 12: #F39C12
+    cells: makeBox(2, 3, 4),
+  },
+  // 36
+  {
+    id: "cuadrado25",
+    name: "Cuadrado 5×5",
+    count: 25,
+    color: "#FF6B6B", // count 25 → (25-1)%12+1 = 1 → key 1: #FF6B6B
+    cells: makeGrid(5, 5),
+  },
+
+  {
+    id: "cubo27",
+    name: "Cubo 3³",
+    count: 27,
+    color: "#FECA57", // count 27 → key 3: #FECA57
+    cells: makeBox(3, 3, 3),
+  },
+  // 39
+  {
+    id: "cajon28",
+    name: "Cajón 2×2×7",
+    count: 28,
+    color: "#48CA8B", // count 28 → key 4: #48CA8B
+    cells: makeBox(2, 2, 7),
+  },
+  // 40
+  {
+    id: "cajon30",
+    name: "Cajón 2×3×5",
+    count: 30,
+    color: "#54A0FF", // count 30 → key 6: #54A0FF? (30%12=6)
+    cells: makeBox(2, 3, 5),
+  },
+  // 41
+  {
+    id: "cajon32",
+    name: "Cajón 2×4×4",
+    count: 32,
+    color: "#FF6EB4", // count 32 → key 8: #FF6EB4
+    cells: makeBox(2, 4, 4),
+  },
+  // 42
+  {
+    id: "cajon36",
+    name: "Cajón 3×3×4",
+    count: 36,
+    color: "#2ECC71", // count 36 → key 9? (36%12=0 → key 12: #F39C12? Recalcular: (36-1)=35, 35%12=11, +1=12 → key 12: #F39C12)
+    color: "#F39C12",
+    cells: makeBox(3, 3, 4),
+  },
+  // 43
+  {
+    id: "cajon40",
+    name: "Cajón 2×4×5",
+    count: 40,
+    color: "#E74C3C", // count 40 → key 10: #E74C3C? (40%12=4 → key 4? No, (40-1)=39, 39%12=3, +1=4 → key 4: #48CA8B)
+    // Corrijo: 40-1=39, 39%12=3, +1=4 → key 4
+    color: "#48CA8B",
+    cells: makeBox(2, 4, 5),
+  },
+  // 44
+  {
+    id: "cajon42",
+    name: "Cajón 2×3×7",
+    count: 42,
+    color: "#9B59B6", // count 42 → key 11? (42%12=6 → key 6? No: (42-1)=41, 41%12=5, +1=6 → key 6: #54A0FF)
+    color: "#54A0FF",
+    cells: makeBox(2, 3, 7),
+  },
+  // 45
+  {
+    id: "cajon48",
+    name: "Cajón 3×4×4",
+    count: 48,
+    color: "#F39C12", // count 48 → key 12? (48%12=0 → key 12: #F39C12)
+    cells: makeBox(3, 4, 4),
+  },
+  // 46
+  {
+    id: "cajon50",
+    name: "Cajón 2×5×5",
+    count: 50,
+    color: "#FF6B6B", // count 50 → key 2? (50-1)=49, 49%12=1, +1=2 → key 2: #FF9F43
+    color: "#FF9F43",
+    cells: makeBox(2, 5, 5),
+  },
 ];
 
 const FALLBACK_PIECES = [
@@ -488,12 +1280,193 @@ function worldPos(gx, gy, gz, W, D) {
   return [gx - (W - 1) / 2, gy, gz - (D - 1) / 2];
 }
 
-const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
+// Axis identity
+const AXIS_COLOR = { X: "#ff4444", Y: "#44ff88", Z: "#4488ff" };
+const AXIS_THREE = { X: 0xff4444, Y: 0x44ff88, Z: 0x4488ff };
+const AXIS_LABEL = { X: "← X →", Y: "↕ Y ↕", Z: "← Z →" };
+
+/**
+ * Draw the XYZ orientation gizmo on a small 2D canvas.
+ * Uses the same spherical angles as the Three.js orbit so it always matches.
+ *
+ *  Camera right  = [ cos(rotY),                  0,               -sin(rotY)           ]
+ *  Camera up     = [-sin(rotY)*sin(rotX),  cos(rotX), -cos(rotY)*sin(rotX)             ]
+ *
+ * Projecting world vector [wx,wy,wz] to 2-D:
+ *   sx =  dot([wx,wy,wz], right)
+ *   sy = -dot([wx,wy,wz], up)      (flip Y for screen-space)
+ */
+function drawGizmo(canvas, rotX, rotY, activeAxis) {
+  const CW = canvas.width,
+    CH = canvas.height;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, CW, CH);
+
+  const cx = CW / 2,
+    cy = CH / 2;
+  const SCALE = Math.min(CW, CH) * 0.3;
+
+  const sinY = Math.sin(rotY),
+    cosY = Math.cos(rotY);
+  const sinX = Math.sin(rotX),
+    cosX = Math.cos(rotX);
+
+  const project = (wx, wy, wz) => ({
+    sx: (wx * cosY - wz * sinY) * SCALE,
+    sy: -(-wx * sinY * sinX - wz * cosY * sinX + wy * cosX) * SCALE,
+  });
+
+  const axes = [
+    { id: "X", dir: [1, 0, 0] },
+    { id: "Y", dir: [0, 1, 0] },
+    { id: "Z", dir: [0, 0, 1] },
+  ].map((a) => ({ ...a, ...project(...a.dir) }));
+
+  // Depth-sort: draw back-to-front so near axes paint over far ones
+  axes.sort((a, b) => {
+    const depth = ([wx, wy, wz]) =>
+      wx * (-sinY * cosX) + wy * sinX + wz * (-cosY * cosX);
+    return depth(a.dir) - depth(b.dir);
+  });
+
+  // Background disc
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = "#060614";
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.min(CW, CH) / 2 - 1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Thin border ring
+  ctx.strokeStyle = "#ffffff12";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.min(CW, CH) / 2 - 1, 0, Math.PI * 2);
+  ctx.stroke();
+
+  axes.forEach(({ id, sx, sy }) => {
+    const active = id === activeAxis;
+    const hex = AXIS_COLOR[id];
+    const alpha = active ? 1.0 : 0.45;
+    const lw = active ? 2.5 : 1.4;
+    const dotR = active ? 5 : 3;
+    const ex = cx + sx,
+      ey = cy + sy;
+    const lx = cx + sx * 1.42,
+      ly = cy + sy * 1.42;
+
+    ctx.globalAlpha = alpha;
+
+    // Axis line
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(ex, ey);
+    ctx.strokeStyle = hex;
+    ctx.lineWidth = lw;
+    ctx.setLineDash(active ? [] : [3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Endpoint dot
+    ctx.beginPath();
+    ctx.arc(ex, ey, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = hex;
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = active ? "#fff" : hex;
+    ctx.font = `${active ? "bold " : ""}${active ? 11 : 9}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(id, lx, ly);
+  });
+
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * Build a Three.js Line that runs through the bounding center of the active piece
+ * along the given rotation axis. Used as an in-scene visual hint.
+ */
+function buildAxisLine(cells, axis, W, D) {
+  const xs = cells.map((c) => c[0]),
+    ys = cells.map((c) => c[1]),
+    zs = cells.map((c) => c[2]);
+  const bcx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const bcy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const bcz = (Math.min(...zs) + Math.max(...zs)) / 2;
+
+  const [wcx, wcy, wcz] = worldPos(bcx, bcy, bcz, W, D);
+
+  // Extend 2.5 units beyond the bounding box along the chosen axis
+  const halfSpan =
+    Math.max(
+      Math.max(...xs) - Math.min(...xs),
+      Math.max(...ys) - Math.min(...ys),
+      Math.max(...zs) - Math.min(...zs),
+    ) /
+      2 +
+    2.5;
+
+  const [dx, dy, dz] =
+    axis === "X" ? [1, 0, 0] : axis === "Y" ? [0, 1, 0] : [0, 0, 1];
+
+  const pts = [
+    new THREE.Vector3(
+      wcx - dx * halfSpan,
+      wcy - dy * halfSpan,
+      wcz - dz * halfSpan,
+    ),
+    new THREE.Vector3(
+      wcx + dx * halfSpan,
+      wcy + dy * halfSpan,
+      wcz + dz * halfSpan,
+    ),
+  ];
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({
+    color: AXIS_THREE[axis],
+    transparent: true,
+    opacity: 0.92,
+    linewidth: 2, // only >1 on WebGL2 with line ext
+    depthTest: false, // always visible, even inside geometry
+  });
+  return new THREE.Line(geo, mat);
+}
+
+/**
+ * TetrisScene
+ * Props:
+ *   preset        — "S" | "L"
+ *   onTouchRotate — called with dir (+1|-1) when a swipe gesture is detected
+ *   onTouchMove   — called with (dx, dz) for swipe-to-move (optional, for future use)
+ *
+ * Ref methods (via useImperativeHandle):
+ *   updateGrid(grid, W, D, H)
+ *   updatePiece(cells, color)
+ *   updateGhost(cells, color)
+ *   showAxisLine(cells, axis)   — shows the axis line inside the piece
+ *   hideAxisLine()              — removes it from scene
+ *   setRotAxis(axis)            — updates gizmo highlight without showing line
+ *   reinit(W, D, H)
+ */
+const TetrisScene = forwardRef(function TetrisScene(
+  { preset, onTouchRotate, onTouchMove },
+  ref,
+) {
   const mountRef = useRef(null);
+  const gizmoRef = useRef(null); // <canvas> for the XYZ gizmo overlay
   const threeRef = useRef(null);
+  const callbackRef = useRef({ onTouchRotate, onTouchMove });
   const _mat = new THREE.Matrix4();
   const _color = new THREE.Color();
 
+  // Keep callbacks fresh without re-running the heavy useEffect
+  useEffect(() => {
+    callbackRef.current = { onTouchRotate, onTouchMove };
+  }, [onTouchRotate, onTouchMove]);
+
+  // ── Instance helper ────────────────────────────────────────────────────────
   function applyInstances(mesh, items) {
     items.forEach(({ wx, wy, wz, hex }, i) => {
       _mat.makeTranslation(wx, wy, wz);
@@ -506,6 +1479,7 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
     mesh.instanceColor.needsUpdate = true;
   }
 
+  // ── Public API ─────────────────────────────────────────────────────────────
   useImperativeHandle(
     ref,
     () => ({
@@ -532,11 +1506,13 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
           return;
         }
         t.pieceMesh.material.emissive.set(color || "#ffffff");
-        const items = cells.map(([x, y, z]) => {
-          const [wx, wy, wz] = worldPos(x, y, z, t.W, t.D);
-          return { wx, wy, wz, hex: color };
-        });
-        applyInstances(t.pieceMesh, items);
+        applyInstances(
+          t.pieceMesh,
+          cells.map(([x, y, z]) => {
+            const [wx, wy, wz] = worldPos(x, y, z, t.W, t.D);
+            return { wx, wy, wz, hex: color };
+          }),
+        );
       },
 
       updateGhost(cells, color) {
@@ -545,11 +1521,42 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
           if (t) t.ghostMesh.count = 0;
           return;
         }
-        const items = cells.map(([x, y, z]) => {
-          const [wx, wy, wz] = worldPos(x, y, z, t.W, t.D);
-          return { wx, wy, wz, hex: color };
-        });
-        applyInstances(t.ghostMesh, items);
+        applyInstances(
+          t.ghostMesh,
+          cells.map(([x, y, z]) => {
+            const [wx, wy, wz] = worldPos(x, y, z, t.W, t.D);
+            return { wx, wy, wz, hex: color };
+          }),
+        );
+      },
+
+      /** Draw the rotation-axis line through the active piece, then remove after 1 s. */
+      showAxisLine(cells, axis) {
+        const t = threeRef.current;
+        if (!t) return;
+        // Remove previous
+        if (t.axisLine) {
+          t.scene.remove(t.axisLine);
+          t.axisLine.geometry.dispose();
+          t.axisLine = null;
+        }
+        const line = buildAxisLine(cells, axis, t.W, t.D);
+        t.scene.add(line);
+        t.axisLine = line;
+      },
+
+      hideAxisLine() {
+        const t = threeRef.current;
+        if (!t || !t.axisLine) return;
+        t.scene.remove(t.axisLine);
+        t.axisLine.geometry.dispose();
+        t.axisLine = null;
+      },
+
+      /** Update which axis is highlighted in the gizmo without touching the scene line. */
+      setRotAxis(axis) {
+        const t = threeRef.current;
+        if (t) t.activeAxis = axis;
       },
 
       reinit(W, D, H) {
@@ -566,8 +1573,9 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
       },
     }),
     [],
-  );
+  ); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Three.js init ─────────────────────────────────────────────────────────
   useEffect(() => {
     const el = mountRef.current;
     const W = BOX_PRESETS[preset].W;
@@ -589,9 +1597,8 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
       800,
     );
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.28);
-    scene.add(ambientLight);
-
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.28));
     const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
     sun.position.set(20, 40, 20);
     sun.castShadow = true;
@@ -601,19 +1608,15 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
     sun.shadow.camera.left = sun.shadow.camera.bottom = -80;
     sun.shadow.camera.right = sun.shadow.camera.top = 80;
     scene.add(sun);
-
     const rimLight = new THREE.DirectionalLight(0x88bbff, 0.85);
     rimLight.position.set(-18, 12, -18);
     scene.add(rimLight);
-
     const fillRight = new THREE.DirectionalLight(0xffddaa, 0.95);
     fillRight.position.set(18, 6, -10);
     scene.add(fillRight);
-
     const bounce = new THREE.DirectionalLight(0xaaccff, 0.2);
     bounce.position.set(0, -8, 0);
     scene.add(bounce);
-
     const bounce2 = new THREE.DirectionalLight(0xaaccff, 0.85);
     bounce2.position.set(-10, 4, 10);
     scene.add(bounce2);
@@ -626,13 +1629,25 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
       lastMX: 0,
       lastMY: 0,
     };
-    const t = { renderer, scene, camera, orbitState, W, D, H, statics: [] };
+    const t = {
+      renderer,
+      scene,
+      camera,
+      orbitState,
+      W,
+      D,
+      H,
+      statics: [],
+      axisLine: null,
+      activeAxis: "Y",
+    };
     threeRef.current = t;
 
     buildStatics(t, W, D, H);
     rebuildInstancedMeshes(t, W, D, H);
     fitCamera(camera, orbitState, W, D, H);
 
+    // ── Render loop ─────────────────────────────────────────────────────────
     let rafId;
     const render = () => {
       rafId = requestAnimationFrame(render);
@@ -647,16 +1662,20 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
       else camera.position.lerp(desired, 0.06);
       camera.lookAt(tgt);
       renderer.render(scene, camera);
+      // Redraw gizmo overlay every frame so it tracks the camera
+      if (gizmoRef.current)
+        drawGizmo(gizmoRef.current, rotX, rotY, t.activeAxis || "Y");
     };
     render();
 
-    const pointerDown = ({ clientX, clientY }) => {
+    // ── Mouse orbit ─────────────────────────────────────────────────────────
+    const mouseDown = ({ clientX, clientY }) => {
       orbitState.dragging = true;
       orbitState.lastMX = clientX;
       orbitState.lastMY = clientY;
       el.style.cursor = "grabbing";
     };
-    const pointerMove = ({ clientX, clientY }) => {
+    const mouseMove = ({ clientX, clientY }) => {
       if (!orbitState.dragging) return;
       orbitState.rotY += (clientX - orbitState.lastMX) * 0.013;
       orbitState.rotX = Math.max(
@@ -666,45 +1685,122 @@ const TetrisScene = forwardRef(function TetrisScene({ preset }, ref) {
       orbitState.lastMX = clientX;
       orbitState.lastMY = clientY;
     };
-    const pointerUp = () => {
+    const mouseUp = () => {
       orbitState.dragging = false;
       el.style.cursor = "grab";
     };
 
+    // ── Touch: 1 finger = rotate piece swipe, 2 fingers = orbit camera ──────
+    const SWIPE_THRESH = 28; // px minimum travel to register swipe
+    const touch = {
+      fingers: 0,
+      startX: 0,
+      startY: 0,
+      lastX: 0,
+      lastY: 0,
+      fired: false,
+    };
+
+    const touchStart = (e) => {
+      const tc = e.touches;
+      touch.fingers = tc.length;
+      touch.fired = false;
+      if (tc.length === 1) {
+        touch.startX = tc[0].clientX;
+        touch.startY = tc[0].clientY;
+        touch.lastX = tc[0].clientX;
+        touch.lastY = tc[0].clientY;
+      } else if (tc.length === 2) {
+        // 2-finger orbit: track midpoint
+        orbitState.dragging = true;
+        const mx = (tc[0].clientX + tc[1].clientX) / 2;
+        const my = (tc[0].clientY + tc[1].clientY) / 2;
+        orbitState.lastMX = mx;
+        orbitState.lastMY = my;
+      }
+    };
+
+    const touchMove = (e) => {
+      const tc = e.touches;
+      if (tc.length === 2) {
+        // 2-finger orbit
+        const mx = (tc[0].clientX + tc[1].clientX) / 2;
+        const my = (tc[0].clientY + tc[1].clientY) / 2;
+        orbitState.rotY += (mx - orbitState.lastMX) * 0.013;
+        orbitState.rotX = Math.max(
+          -0.1,
+          Math.min(1.5, orbitState.rotX - (my - orbitState.lastMY) * 0.009),
+        );
+        orbitState.lastMX = mx;
+        orbitState.lastMY = my;
+        return;
+      }
+      if (tc.length === 1 && !touch.fired) {
+        const dx = tc[0].clientX - touch.startX;
+        const dy = tc[0].clientY - touch.startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > SWIPE_THRESH) {
+          const isHoriz = Math.abs(dx) >= Math.abs(dy);
+          const dir = isHoriz ? (dx > 0 ? 1 : -1) : dy > 0 ? 1 : -1;
+          callbackRef.current.onTouchRotate?.(dir);
+          touch.fired = true;
+        }
+        touch.lastX = tc[0].clientX;
+        touch.lastY = tc[0].clientY;
+      }
+    };
+
+    const touchEnd = () => {
+      orbitState.dragging = false;
+      touch.fingers = 0;
+    };
+
     el.style.cursor = "grab";
-    el.addEventListener("mousedown", pointerDown);
-    el.addEventListener("touchstart", (e) => pointerDown(e.touches[0]), {
-      passive: true,
-    });
-    window.addEventListener("mousemove", pointerMove);
-    window.addEventListener("touchmove", (e) => pointerMove(e.touches[0]), {
-      passive: true,
-    });
-    window.addEventListener("mouseup", pointerUp);
-    window.addEventListener("touchend", pointerUp);
-    window.addEventListener("resize", () => {
+    el.addEventListener("mousedown", mouseDown);
+    el.addEventListener("touchstart", touchStart, { passive: true });
+    window.addEventListener("mousemove", mouseMove);
+    window.addEventListener("touchmove", touchMove, { passive: true });
+    window.addEventListener("mouseup", mouseUp);
+    window.addEventListener("touchend", touchEnd);
+
+    const onResize = () => {
       const w = el.clientWidth,
         h = el.clientHeight;
       if (!w || !h) return;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
-    });
+    };
+    window.addEventListener("resize", onResize);
 
     return () => {
       cancelAnimationFrame(rafId);
-      el.removeEventListener("mousedown", pointerDown);
-      el.removeEventListener("touchstart", pointerDown);
-      window.removeEventListener("mousemove", pointerMove);
-      window.removeEventListener("touchmove", pointerMove);
-      window.removeEventListener("mouseup", pointerUp);
-      window.removeEventListener("touchend", pointerUp);
+      el.removeEventListener("mousedown", mouseDown);
+      el.removeEventListener("touchstart", touchStart);
+      window.removeEventListener("mousemove", mouseMove);
+      window.removeEventListener("touchmove", touchMove);
+      window.removeEventListener("mouseup", mouseUp);
+      window.removeEventListener("touchend", touchEnd);
+      window.removeEventListener("resize", onResize);
       renderer.dispose();
       if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div ref={mountRef} style={S.canvas} />;
+  return (
+    <div
+      ref={mountRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        borderRadius: "inherit",
+        position: "relative",
+      }}
+    >
+      {/* XYZ orientation gizmo — 2D canvas, bottom-left corner */}
+      <canvas ref={gizmoRef} width={96} height={96} style={S.gizmoCanvas} />
+    </div>
+  );
 });
 
 function buildStatics(t, W, D, H) {
@@ -795,7 +1891,7 @@ function rebuildInstancedMeshes(t, W, D, H) {
     metalness: 0.0,
     transparent: true,
     opacity: GHOST_OPACITY,
-    depthWrite: false,
+    // depthWrite: false,
   });
   t.ghostMesh = makeInstanced(ghostMat, MAX_PIECE_CELLS);
   scene.add(t.ghostMesh);
@@ -942,16 +2038,12 @@ function addLeaderboardEntry(
 /** React hook — exposes scores list and addScore action. */
 function useLeaderboard() {
   const [scores, setScores] = useState(() => lsRead());
-  const { playerName } = useUserStore();
 
-  const addScore = useCallback(
-    (score, mode) => {
-      const updated = addLeaderboardEntry(score, mode, playerName);
-      setScores(updated);
-      return updated;
-    },
-    [playerName],
-  );
+  const addScore = useCallback((score, mode) => {
+    const updated = addLeaderboardEntry(score, mode);
+    setScores(updated);
+    return updated;
+  }, []);
 
   const refresh = useCallback(() => setScores(lsRead()), []);
 
@@ -975,12 +2067,14 @@ export default function TetrisApp() {
     lastClears: [],
     nextPiece: null,
     showBoard: false,
+    fullscreen: false,
   });
 
   const sceneRef = useRef(null);
   const dropTimerRef = useRef(null);
   const softDropRef = useRef(false);
   const rotAxisRef = useRef("Y");
+  const axisTimerRef = useRef(null); // auto-hide timer for axis line
 
   const { scores, addScore, refresh } = useLeaderboard();
 
@@ -1141,6 +2235,16 @@ export default function TetrisApp() {
   const cycleAxis = useCallback(() => {
     const next = AXES[(AXES.indexOf(rotAxisRef.current) + 1) % AXES.length];
     rotAxisRef.current = next;
+    // Show axis line through current piece, update gizmo highlight
+    const g = game.current;
+    if (g?.piece) sceneRef.current?.showAxisLine(g.piece.cells, next);
+    sceneRef.current?.setRotAxis(next);
+    // Auto-hide the axis line after 1.2 s
+    if (axisTimerRef.current) clearTimeout(axisTimerRef.current);
+    axisTimerRef.current = setTimeout(
+      () => sceneRef.current?.hideAxisLine(),
+      1200,
+    );
     setUi((u) => ({ ...u, rotAxis: next }));
   }, []);
 
@@ -1177,6 +2281,28 @@ export default function TetrisApp() {
     [startDropTimer],
   );
 
+  // Touch-swipe rotates the piece using the currently selected axis
+  const handleTouchRotate = useCallback(
+    (dir) => rotatePiece(dir),
+    [rotatePiece],
+  );
+
+  // Fullscreen toggle using the Fullscreen API
+  const containerRef = useRef(null);
+  const toggleFullscreen = useCallback(() => {
+    const el = containerRef.current;
+    if (!document.fullscreenElement) {
+      el?.requestFullscreen?.()
+        .then(() => setUi((u) => ({ ...u, fullscreen: true })))
+        .catch(() => {});
+    } else {
+      document
+        .exitFullscreen?.()
+        .then(() => setUi((u) => ({ ...u, fullscreen: false })))
+        .catch(() => {});
+    }
+  }, []);
+
   useGameInput({
     onMove: movePiece,
     onRotate: rotatePiece,
@@ -1186,7 +2312,18 @@ export default function TetrisApp() {
     onSoftDrop: softDrop,
   });
 
-  useEffect(() => () => clearInterval(dropTimerRef.current), []);
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement)
+        setUi((u) => ({ ...u, fullscreen: false }));
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => {
+      clearInterval(dropTimerRef.current);
+      clearTimeout(axisTimerRef.current);
+      document.removeEventListener("fullscreenchange", onFsChange);
+    };
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const {
@@ -1199,15 +2336,21 @@ export default function TetrisApp() {
     lastClears,
     nextPiece,
     showBoard,
+    fullscreen,
   } = ui;
   const isPlaying = status === "playing";
   const isPaused = status === "paused";
   const isOver = status === "over";
   const isIdle = status === "idle";
   const topScores = [...scores].sort((a, b) => b.score - a.score).slice(0, 8);
+  const axisHex =
+    { X: "#ff4444", Y: "#44ff88", Z: "#4488ff" }[rotAxis] || "#fff";
 
   return (
-    <div style={S.root}>
+    <div
+      ref={containerRef}
+      style={{ ...S.root, ...(fullscreen ? S.rootFullscreen : {}) }}
+    >
       <div style={S.bgGrid} />
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -1245,6 +2388,16 @@ export default function TetrisApp() {
           >
             🏆 Tabla
           </button>
+          <button
+            onClick={toggleFullscreen}
+            style={{
+              ...S.headerBtn,
+              borderColor: fullscreen ? "#22C55E" : "#ffffff18",
+              color: fullscreen ? "#22C55E" : "#556",
+            }}
+          >
+            {fullscreen ? "⛶" : "⛶"} {fullscreen ? "Salir" : "Full"}
+          </button>
           <span style={S.headerHint}>
             WASD · Spc=eje · Tab=drop · Q/E=rotar
           </span>
@@ -1256,7 +2409,40 @@ export default function TetrisApp() {
         {/* LEFT — 3D scene */}
         <div style={S.leftCol}>
           <div style={S.sceneBox}>
-            <TetrisScene ref={sceneRef} preset={preset} />
+            <TetrisScene
+              ref={sceneRef}
+              preset={preset}
+              onTouchRotate={handleTouchRotate}
+            />
+
+            {/* Axis HUD — current rotation axis indicator */}
+            {isPlaying && (
+              <div style={S.axisHud}>
+                <span
+                  style={{
+                    color: "#888",
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.6px",
+                  }}
+                >
+                  EJE
+                </span>
+                <span
+                  style={{
+                    color: axisHex,
+                    fontSize: 20,
+                    fontWeight: 900,
+                    lineHeight: 1,
+                  }}
+                >
+                  {rotAxis}
+                </span>
+                <span style={{ color: axisHex, fontSize: 9, opacity: 0.7 }}>
+                  {{ X: "←→", Y: "↕", Z: "↙↗" }[rotAxis]}
+                </span>
+              </div>
+            )}
 
             {(isIdle || isPaused || isOver) && (
               <div style={S.overlay}>
@@ -1387,22 +2573,51 @@ export default function TetrisApp() {
                     onClick={cycleAxis}
                     style={{
                       ...S.rotAxisBtn,
-                      borderColor: "#ffffff44",
-                      color: "#fff",
-                      background: "#334",
+                      borderColor: axisHex,
+                      color: axisHex,
+                      background: axisHex + "18",
+                      boxShadow: `0 0 8px ${axisHex}44`,
                     }}
                   >
-                    Eje:{" "}
-                    <span style={{ color: "#F0A500", fontWeight: 900 }}>
+                    <span style={{ fontSize: 10, opacity: 0.7 }}>Eje</span>{" "}
+                    <span style={{ fontSize: 18, fontWeight: 900 }}>
                       {rotAxis}
                     </span>
+                    <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>
+                      TAP
+                    </span>
                   </button>
-                  <button onClick={() => rotatePiece(-1)} style={S.rotBtn}>
+                  <button
+                    onClick={() => rotatePiece(-1)}
+                    style={{
+                      ...S.rotBtn,
+                      borderColor: axisHex + "66",
+                      color: axisHex,
+                    }}
+                  >
                     ↺ CCW
                   </button>
-                  <button onClick={() => rotatePiece(1)} style={S.rotBtn}>
+                  <button
+                    onClick={() => rotatePiece(1)}
+                    style={{
+                      ...S.rotBtn,
+                      borderColor: axisHex + "66",
+                      color: axisHex,
+                    }}
+                  >
                     ↻ CW
                   </button>
+                </div>
+                {/* Mobile swipe hint */}
+                <div
+                  style={{
+                    fontSize: 9,
+                    color: "#334",
+                    textAlign: "center",
+                    marginTop: 2,
+                  }}
+                >
+                  📱 Deslizar ← → para rotar · 2 dedos para orbitar
                 </div>
               </div>
 
@@ -1678,6 +2893,7 @@ const S = {
     position: "relative",
     overflow: "hidden",
   },
+  rootFullscreen: { position: "fixed", inset: 0, zIndex: 9999 },
   bgGrid: {
     position: "fixed",
     inset: 0,
@@ -1777,6 +2993,36 @@ const S = {
     color: "#ffffff22",
     pointerEvents: "none",
     userSelect: "none",
+  },
+
+  // Gizmo: XYZ orientation canvas, bottom-left corner of the scene
+  gizmoCanvas: {
+    position: "absolute",
+    bottom: 10,
+    left: 10,
+    width: 96,
+    height: 96,
+    borderRadius: "50%",
+    pointerEvents: "none",
+    zIndex: 5,
+  },
+
+  // Axis HUD: top-right inside the scene showing current rotation axis
+  axisHud: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 1,
+    background: "#000000bb",
+    borderRadius: 10,
+    padding: "6px 10px",
+    backdropFilter: "blur(6px)",
+    border: "1px solid #ffffff12",
+    pointerEvents: "none",
+    zIndex: 5,
   },
   overlay: {
     position: "absolute",

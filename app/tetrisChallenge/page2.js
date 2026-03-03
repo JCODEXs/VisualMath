@@ -31,14 +31,13 @@ import {
   useImperativeHandle,
 } from "react";
 import * as THREE from "three";
-import { useUserStore } from "../store/userStore";
 
 // =============================================================================
 // §1 — CONFIGURATION & SCORING
 // =============================================================================
 
 export const BOX_PRESETS = {
-  S: { W: 9, D: 9, H: 20, label: "9 × 9 × 20" },
+  S: { W: 9, D: 9, H: 20, label: "10 × 10 × 40" },
   L: { W: 20, D: 20, H: 30, label: "20 × 20 × 30" },
 };
 
@@ -48,7 +47,7 @@ const VERT_THRESH_RATIO = 0.45;
 const GHOST_OPACITY = 0.59;
 const DEFAULT_PLAYER = "JUGADOR";
 
-const DROP_SPEEDS = [1900, 720, 570, 450, 350, 270, 200, 145, 100, 70];
+const DROP_SPEEDS = [1900, 1720, 1570, 1450, 1350, 1270, 920, 845, 500, 470];
 const dropSpeed = (level) =>
   DROP_SPEEDS[Math.min(level - 1, DROP_SPEEDS.length - 1)];
 
@@ -69,9 +68,854 @@ const AXES = ["Y", "X", "Z"];
 //   ║  Format: { id, name, color, cells: [[x,y,z], ...] }                ║
 //   ║  y = vertical axis (0 = bottom of piece, grows upward)             ║
 //   ╚══════════════════════════════════════════════════════════════════════╝
+function makeGrid(w, h, z = 0) {
+  const cubes = [];
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) cubes.push([x, y, z]);
+  return cubes;
+}
+
+function makeTriangle(base, z = 0) {
+  const cubes = [];
+  for (let i = 0; i < base; i++)
+    for (let j = 0; j <= i; j++) cubes.push([j, base - 1 - i, z]); // filas decrecientes en y
+  return cubes;
+}
+
+function makeBox(w, d, h) {
+  const cubes = [];
+  for (let x = 0; x < w; x++)
+    for (let y = 0; y < d; y++)
+      for (let z = 0; z < h; z++) cubes.push([x, y, z]);
+  return cubes;
+}
 const USER_PIECES = [
-  // { id: "my_I4", name: "Barra", color: "#E84040",
-  //   cells: [[0,0,0],[1,0,0],[2,0,0],[3,0,0]] },
+  // ── 1. Figuras originales (15) ───────────────────────────────────────────
+  {
+    id: "unit",
+    name: "Unidad",
+    count: 1,
+    color: "#FF6B6B", // count 1 → key 1
+    cells: [[0, 0, 0]],
+  },
+  {
+    id: "domino",
+    name: "Dominó",
+    count: 2,
+    color: "#FF9F43", // count 2 → key 2
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+    ],
+  },
+  {
+    id: "trio",
+    name: "Trío",
+    count: 3,
+    color: "#FECA57", // count 3 → key 3
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+    ],
+  },
+  {
+    id: "square4",
+    name: "Cuadrado 2×2",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: makeGrid(2, 2),
+  },
+  {
+    id: "lshape",
+    name: "Ele (L)",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 0, 1],
+    ],
+  },
+  {
+    id: "Ishape",
+    name: "I",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [3, 0, 0],
+    ],
+  },
+  {
+    id: "Ishape5",
+    name: "I",
+    count: 5,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [3, 0, 0],
+      [5, 0, 0],
+    ],
+  },
+  {
+    id: "lshape2",
+    name: "Ele (L2)",
+    count: 8,
+    color: "#FF6EB4", // count 8 → key 8
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 0, 1],
+      [0, 1, 0],
+      [1, 1, 0],
+      [2, 1, 0],
+      [2, 1, 1],
+    ],
+  },
+  {
+    id: "cross",
+    name: "Cruz  T",
+    count: 5,
+    color: "#00D2D3", // count 5 → key 5
+    cells: [
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+    ],
+  },
+  {
+    id: "cross",
+    name: "Cruz  T2u",
+    count: 10,
+    color: "#E74C3C", // count 10 → key 10
+    cells: [
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+      [0, 1, 1],
+      [0, 1, 0],
+      [1, 1, 1],
+      [2, 1, 1],
+      [0, 1, 2],
+    ],
+  },
+  {
+    id: "crosser",
+    name: "Cruz  T3",
+    count: 15,
+    color: "#9B59B6", // count 15 → (15-1)%12+1 = 3 → key 3? (15 mod 12 = 3) → #FECA57
+    // Nota: 15 % 12 = 3, pero ajustamos: ((15-1)%12)+1 = 3, correcto.
+    color: "#FECA57",
+    cells: [
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+      [0, 1, 1],
+      [0, 1, 0],
+      [1, 1, 1],
+      [2, 1, 1],
+      [0, 1, 2],
+      [0, 2, 1],
+      [0, 2, 0],
+      [1, 2, 1],
+      [2, 2, 1],
+      [0, 2, 2],
+    ],
+  },
+  {
+    id: "pyramid",
+    name: "Pirámide",
+    count: 5,
+    color: "#00D2D3", // count 5 → key 5
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 0, 1],
+      [1, 0, 1],
+      [0, 1, 0],
+    ],
+  },
+  {
+    id: "rect6",
+    name: "Rectángulo 2×3",
+    count: 6,
+    color: "#54A0FF", // count 6 → key 6
+    cells: makeGrid(3, 2),
+  },
+  // {
+  //   id: "stair6",
+  //   name: "Escalera 1+2+3",
+  //   count: 6,
+  //   color: "#54A0FF", // count 6 → key 6
+  //   cells: [
+  //     [0, 0, 2],
+  //     [0, 0, 1],
+  //     [1, 0, 1],
+  //     [0, 0, 0],
+  //     [1, 0, 0],
+  //     [2, 0, 0],
+  //   ],
+  // },
+  {
+    id: "arch",
+    name: "Arco ∪",
+    count: 7,
+    color: "#5F27CD", // count 7 → key 7
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [1, 2, 0],
+      [2, 2, 0],
+      [2, 1, 0],
+      [2, 0, 0],
+    ],
+  },
+  {
+    id: "arch3",
+    name: "Arco 3∪",
+    count: 21,
+    color: "#F39C12", // count 21 → (21-1)%12+1 = 9? 21 mod 12 = 9 → #2ECC71? No: ((21-1)%12)+1 = 9, key 9 → #2ECC71
+    // Recalculemos: (21-1)=20, 20%12=8, +1=9 → key 9: #2ECC71
+    color: "#2ECC71",
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [1, 2, 0],
+      [2, 2, 0],
+      [2, 1, 0],
+      [2, 0, 0],
+      [0, 0, 1],
+      [0, 1, 1],
+      [0, 2, 1],
+      [1, 2, 1],
+      [2, 2, 1],
+      [2, 1, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+      [0, 1, 2],
+      [0, 2, 2],
+      [1, 2, 2],
+      [2, 2, 2],
+      [2, 1, 2],
+      [2, 0, 2],
+    ],
+  },
+  {
+    id: "arch2",
+    name: "Arco 2∪",
+    count: 14,
+    color: "#FF9F43", // count 14 → (14-1)%12+1 = 2 → key 2: #FF9F43
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [1, 2, 0],
+      [2, 2, 0],
+      [2, 1, 0],
+      [2, 0, 0],
+      [0, 0, 1],
+      [0, 1, 1],
+      [0, 2, 1],
+      [1, 2, 1],
+      [2, 2, 1],
+      [2, 1, 1],
+      [2, 0, 1],
+    ],
+  },
+  {
+    id: "zigzag",
+    name: "Zigzag 3D",
+    count: 7,
+    color: "#5F27CD", // count 7 → key 7
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [0, 2, 0],
+      [0, 3, 0],
+      [0, 4, 0],
+      [0, 5, 0],
+      [0, 6, 0],
+    ],
+  },
+  {
+    id: "cube8",
+    name: "Cubo 2³",
+    count: 8,
+    color: "#FF6EB4", // count 8 → key 8
+    cells: makeBox(2, 2, 2),
+  },
+  {
+    id: "square9",
+    name: "Cuadrado 3×3",
+    count: 9,
+    color: "#2ECC71", // count 9 → key 9
+    cells: makeGrid(3, 3),
+  },
+  {
+    id: "triangle10",
+    name: "Triángulo T₄",
+    count: 10,
+    color: "#E74C3C", // count 10 → key 10
+    cells: makeTriangle(4),
+  },
+  {
+    id: "dozen",
+    name: "Docena 3×4",
+    count: 12,
+    color: "#F39C12", // count 12 → key 12
+    cells: makeGrid(4, 3),
+  },
+
+  // ── 2. Nuevas figuras (35) ───────────────────────────────────────────────
+  {
+    id: "esquina4",
+    name: "Esquina 3D",
+    count: 4,
+    color: "#48CA8B", // count 4 → key 4
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [1, 1, 0],
+      [1, 1, 1],
+    ],
+  },
+  {
+    id: "tee5",
+    name: "T 3D",
+    count: 5,
+    color: "#00D2D3", // count 5 → key 5
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [1, 1, 0],
+      [1, 0, 1],
+    ],
+  },
+  {
+    id: "tee6",
+    name: "T 3D L",
+    count: 6,
+    color: "#54A0FF", // count 6 → key 6
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [1, 1, 0],
+      [1, 0, 1],
+      [1, 0, 2],
+    ],
+  },
+  {
+    id: "tee7",
+    name: "3D axis",
+    count: 7,
+    color: "#5F27CD", // count 7 → key 7
+    cells: [
+      [0, 0, 0],
+      [-1, 0, 0],
+      [1, 0, 0],
+      [1, 2, 0],
+      [1, 1, 0],
+      [1, 0, 1],
+      [1, 0, 2],
+    ],
+  },
+  {
+    id: "cruz3d6",
+    name: "Cruz 3D",
+    count: 6,
+    color: "#54A0FF", // count 6 → key 6
+    cells: [
+      [1, 1, 1],
+      [0, 1, 1],
+      [2, 1, 1],
+      [1, 0, 1],
+      [1, 2, 1],
+      [1, 1, 2],
+    ],
+  },
+  // {
+  //   id: "escalera7",
+  //   name: "Escalera 7",
+  //   count: 7,
+  //   color: "#5F27CD", // count 7 → key 7
+  //   cells: [
+  //     [0, 0, 0],
+  //     [1, 0, 0],
+  //     [1, 1, 0],
+  //     [2, 1, 0],
+  //     [2, 1, 1],
+  //     [3, 1, 1],
+  //     [3, 2, 1],
+  //   ],
+  // },
+  {
+    id: "anillo8",
+    name: "Anillo",
+    count: 8,
+    color: "#FF6EB4", // count 8 → key 8
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [1, 2, 0],
+      [0, 2, 0],
+      [0, 1, 0],
+    ],
+  },
+  {
+    id: "anillo16",
+    name: "Anillox2",
+    count: 16,
+    color: "#F39C12", // count 16 → (16-1)%12+1 = 4 → key 4? (16 mod 12 = 4) → #48CA8B? Recalcular: (16-1)=15, 15%12=3, +1=4 → key 4: #48CA8B
+    color: "#48CA8B",
+    cells: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [1, 2, 0],
+      [0, 2, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [2, 1, 1],
+      [2, 2, 1],
+      [1, 2, 1],
+      [0, 2, 1],
+      [0, 1, 1],
+    ],
+  },
+  {
+    id: "corner_3d",
+    name: "esquina  ",
+    count: 10,
+    color: "#E74C3C", // count 10 → key 10
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [1, 1, 1],
+      [0, 0, 1],
+      [-1, 0, 0],
+      [1, 0, 0],
+      [1, 2, 0],
+      [1, 1, 0],
+      [1, 0, 1],
+      [1, 0, 2],
+    ],
+  },
+  // {
+  //   id: "corner_3d F",
+  //   name: "esquina Completa  ",
+  //   count: 11,
+  //   color: "#9B59B6", // count 11 → key 11
+  //   cells: [
+  //     [0, 0, 0],
+  //     [0, 1, 0],
+  //     [1, 1, 1],
+  //     [0, 0, 1],
+  //     [0, 1, 1],
+  //     [-1, 0, 0],
+  //     [1, 0, 0],
+  //     [1, 2, 0],
+  //     [1, 1, 0],
+  //     [1, 0, 1],
+  //     [1, 0, 2],
+  //   ],
+  // },
+  // 22 omitido (estaba comentado)
+  // 23
+  {
+    id: "rect11_falta",
+    name: "Rectángulo 3×4 incompleto",
+    count: 11,
+    color: "#9B59B6", // count 11 → key 11
+    cells: (() => {
+      const c = makeGrid(3, 4); // 12 cubos
+      return c.filter(([x, y]) => !(x === 2 && y === 3)); // quita (2,3,0)
+    })(),
+  },
+  // 24
+  {
+    id: "cajon12",
+    name: "Cajón 2×2×3",
+    count: 12,
+    color: "#F39C12", // count 12 → key 12
+    cells: makeBox(2, 2, 3),
+  },
+  {
+    id: "cajon18B",
+    name: "Cajón 4×4 +2",
+    count: 18,
+    color: "#00D2D3", // count 18 → (18-1)%12+1 = 6 → key 6: #54A0FF? (18%12=6) → key 6: #54A0FF
+    color: "#54A0FF",
+    cells: (() => [...makeGrid(4, 4), [0, 0, 1], [1, 0, 1]])(),
+  },
+  // 25
+  {
+    id: "shape13",
+    name: "13 plano",
+    count: 13,
+    color: "#FF6B6B", // count 13 → (13-1)%12+1 = 1 → key 1: #FF6B6B
+    cells: (() => [
+      ...makeGrid(3, 3),
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [2, 1, 1],
+    ])(),
+  },
+  // 26
+  {
+    id: "rect14",
+    name: "Rectángulo 2×7",
+    count: 14,
+    color: "#FF9F43", // count 14 → key 2: #FF9F43
+    cells: makeGrid(7, 2),
+  },
+  {
+    id: "3x3+5",
+    name: "Rectángulo 3x3+5",
+    count: 14,
+    color: "#FF9F43", // count 14 → key 2: #FF9F43
+    cells: (() => [
+      ...makeGrid(3, 3),
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 1, 1],
+      [1, 1, 1],
+    ])(),
+  },
+  // 27
+  {
+    id: "triang15",
+    name: "Triángulo T₅",
+    count: 15,
+    color: "#FECA57", // count 15 → key 3: #FECA57
+    cells: makeTriangle(5),
+  },
+  // 28
+  {
+    id: "cuadrado16",
+    name: "Cuadrado 4×4",
+    count: 16,
+    color: "#48CA8B", // count 16 → key 4: #48CA8B
+    cells: makeGrid(4, 4),
+  },
+  {
+    id: "prisma16",
+    name: "Prisma 4×2x2",
+    count: 16,
+    color: "#48CA8B", // count 16 → key 4: #48CA8B
+    cells: makeBox(4, 2, 2),
+  },
+  // 29
+  {
+    id: "primo17",
+    name: "Línea 17",
+    count: 17,
+    color: "#00D2D3", // count 17 → key 5: #00D2D3
+    cells: (() => [...makeGrid(5, 3), [0, 0, 1], [1, 0, 1]])(),
+  },
+  {
+    id: "primo17sq",
+    name: "cuadrado 17",
+    count: 17,
+    color: "#00D2D3", // count 17 → key 5: #00D2D3
+    cells: (() => [...makeGrid(5, 3), [0, 0, 1], [1, 0, 1]])(),
+  },
+  {
+    id: "anillo16",
+    name: "Anillox2 +1 ",
+    count: 17,
+    color: "#00D2D3", // count 17 → key 5: #00D2D3
+    cells: [
+      [0, 0, 0],
+      [1, 1, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [1, 2, 0],
+      [0, 2, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [2, 1, 1],
+      [2, 2, 1],
+      [1, 2, 1],
+      [0, 2, 1],
+      [0, 1, 1],
+    ],
+  },
+  // 30
+  {
+    id: "cajon18",
+    name: "Cajón 2×3×3",
+    count: 18,
+    color: "#54A0FF", // count 18 → key 6: #54A0FF
+    cells: makeBox(2, 3, 3),
+  },
+  // 31
+  {
+    id: "primo19",
+    name: "Línea 19",
+    count: 19,
+    color: "#5F27CD", // count 19 → key 7: #5F27CD
+    cells: (() => [...makeBox(3, 2, 2), [1, 1, 2]])(),
+  },
+  {
+    id: "primo19B",
+    name: "rectangulo 5x3 + 4 ",
+    count: 19,
+    color: "#5F27CD", // count 19 → key 7: #5F27CD
+    cells: (() => [
+      ...makeGrid(5, 3),
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [3, 0, 1],
+    ])(),
+  },
+  {
+    id: "primo19a",
+    name: "Prisma 3x3x2 + 1 ",
+    count: 19,
+    color: "#5F27CD", // count 19 → key 7: #5F27CD
+    cells: (() => [...makeBox(3, 3, 2), [1, 1, 2]])(),
+  },
+  // 32
+  {
+    id: "cajon20",
+    name: "Cajón 2×2×5",
+    count: 20,
+    color: "#FF6EB4", // count 20 → key 8: #FF6EB4
+    cells: makeBox(2, 2, 5),
+  },
+  {
+    id: "cajon20A",
+    name: "Cudrado 4×5",
+    count: 20,
+    color: "#FF6EB4", // count 20 → key 8: #FF6EB4
+    cells: makeGrid(4, 5),
+  },
+  // 33
+  {
+    id: "triang21",
+    name: "Triángulo T₆",
+    count: 21,
+    color: "#2ECC71", // count 21 → key 9: #2ECC71
+    cells: makeTriangle(6),
+  },
+  {
+    id: "Prisma21",
+    name: "cuadrado 21",
+    count: 21,
+    color: "#2ECC71", // count 21 → key 9: #2ECC71
+    cells: makeGrid(3, 7),
+  },
+  {
+    id: "Prisma21S",
+    name: "suma de dos rectangulos",
+    count: 21,
+    color: "#2ECC71", // count 21 → key 9: #2ECC71
+    cells: (() => [
+      ...makeGrid(3, 4).map(([x, y]) => [x, y, 0]),
+      ...makeGrid(3, 3).map(([x, y]) => [x, y, 1]),
+    ])(),
+  },
+  // 34
+  {
+    id: "rect22",
+    name: "Rectángulo 2×11",
+    count: 22,
+    color: "#E74C3C", // count 22 → key 10: #E74C3C
+    cells: (() => [
+      ...makeGrid(9, 2).map(([x, y]) => [x, y, 0]),
+      ...makeGrid(2, 2).map(([x, y]) => [x, y, 1]),
+    ])(),
+  },
+  {
+    id: "Cajon22",
+    name: "cajon 2×5X2",
+    count: 22,
+    color: "#E74C3C", // count 22 → key 10: #E74C3C
+    cells: (() => [...makeBox(2, 5, 2), [0, 0, 2], [1, 0, 2]])(),
+  },
+  // 35
+  {
+    id: "cajon24",
+    name: "Cajón 2×3×4",
+    count: 24,
+    color: "#F39C12", // count 24 → key 12: #F39C12? (24 mod 12 = 0) → key 12: #F39C12
+    cells: makeBox(2, 3, 4),
+  },
+  // 36
+  {
+    id: "cuadrado25",
+    name: "Cuadrado 5×5",
+    count: 25,
+    color: "#FF6B6B", // count 25 → (25-1)%12+1 = 1 → key 1: #FF6B6B
+    cells: makeGrid(5, 5),
+  },
+  // 37
+  // {
+  //   id: "rect26",
+  //   name: "Rectángulo 2×13",
+  //   count: 26,
+  //   color: "#FF9F43", // count 26 → key 2: #FF9F43
+  //   cells: makeGrid(13, 2),
+  // },
+  // 38
+  {
+    id: "cubo27",
+    name: "Cubo 3³",
+    count: 27,
+    color: "#FECA57", // count 27 → key 3: #FECA57
+    cells: makeBox(3, 3, 3),
+  },
+  // 39
+  {
+    id: "cajon28",
+    name: "Cajón 2×2×7",
+    count: 28,
+    color: "#48CA8B", // count 28 → key 4: #48CA8B
+    cells: makeBox(2, 2, 7),
+  },
+  // 40
+  {
+    id: "cajon30",
+    name: "Cajón 2×3×5",
+    count: 30,
+    color: "#54A0FF", // count 30 → key 6: #54A0FF? (30%12=6)
+    cells: makeBox(2, 3, 5),
+  },
+  // 41
+  {
+    id: "cajon32",
+    name: "Cajón 2×4×4",
+    count: 32,
+    color: "#FF6EB4", // count 32 → key 8: #FF6EB4
+    cells: makeBox(2, 4, 4),
+  },
+  // 42
+  {
+    id: "cajon36",
+    name: "Cajón 3×3×4",
+    count: 36,
+    color: "#2ECC71", // count 36 → key 9? (36%12=0 → key 12: #F39C12? Recalcular: (36-1)=35, 35%12=11, +1=12 → key 12: #F39C12)
+    color: "#F39C12",
+    cells: makeBox(3, 3, 4),
+  },
+  // 43
+  {
+    id: "cajon40",
+    name: "Cajón 2×4×5",
+    count: 40,
+    color: "#E74C3C", // count 40 → key 10: #E74C3C? (40%12=4 → key 4? No, (40-1)=39, 39%12=3, +1=4 → key 4: #48CA8B)
+    // Corrijo: 40-1=39, 39%12=3, +1=4 → key 4
+    color: "#48CA8B",
+    cells: makeBox(2, 4, 5),
+  },
+  // 44
+  {
+    id: "cajon42",
+    name: "Cajón 2×3×7",
+    count: 42,
+    color: "#9B59B6", // count 42 → key 11? (42%12=6 → key 6? No: (42-1)=41, 41%12=5, +1=6 → key 6: #54A0FF)
+    color: "#54A0FF",
+    cells: makeBox(2, 3, 7),
+  },
+  // 45
+  {
+    id: "cajon48",
+    name: "Cajón 3×4×4",
+    count: 48,
+    color: "#F39C12", // count 48 → key 12? (48%12=0 → key 12: #F39C12)
+    cells: makeBox(3, 4, 4),
+  },
+  // 46
+  {
+    id: "cajon50",
+    name: "Cajón 2×5×5",
+    count: 50,
+    color: "#FF6B6B", // count 50 → key 2? (50-1)=49, 49%12=1, +1=2 → key 2: #FF9F43
+    color: "#FF9F43",
+    cells: makeBox(2, 5, 5),
+  },
+  // 47
+  // {
+  //   id: "arco3d7",
+  //   name: "cruz 3D axis",
+  //   count: 7,
+  //   color: "#5F27CD", // count 7 → key 7
+  //   cells: [
+  //     [1, 1, 0],
+  //     [0, 1, 0],
+  //     [1, 1, -1],
+  //     [1, 2, 0],
+  //     [1, 1, 1],
+  //     [2, 1, 0],
+  //     [1, 0, 0],
+  //   ],
+  // },
+  // 48
+  {
+    id: "cuadrado9_3d",
+    name: "esquina 3×3 con centro alto",
+    count: 9,
+    color: "#2ECC71", // count 9 → key 9
+    cells: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [1, 1, 1],
+      [-1, 0, 0],
+      [1, 0, 0],
+      [1, 2, 0],
+      [1, 1, 0],
+      [1, 0, 1],
+      [1, 0, 2],
+    ],
+  },
+  // 49 (comentada)
+  // 50
+  // {
+  //   id: "serpiente8",
+  //   name: "Serpiente 8",
+  //   count: 8,
+  //   color: "#FF6EB4", // count 8 → key 8
+  //   cells: [
+  //     [0, 0, 0],
+  //     [1, 0, 0],
+  //     [1, 1, 0],
+  //     [1, 1, 1],
+  //     [2, 1, 1],
+  //     [2, 2, 1],
+  //     [2, 2, 2],
+  //     [3, 2, 2],
+  //   ],
+  // },
 ];
 
 const FALLBACK_PIECES = [
@@ -379,7 +1223,7 @@ function computeGhost(grid, cells, W, D, H) {
  *      collected as "survivors" (they are NOT part of the clear).
  *   3. The ENTIRE column is wiped to empty.
  *   4. Survivors are re-stamped compacted from y=0 upward, so they
- *      fall to the lowest available position — no floating cubes.
+ *      fall to the lowest available position — no floating cells.
  *
  * Both layer clears and column clears increment the "lines" counter
  * and contribute to the score.
@@ -795,7 +1639,7 @@ function rebuildInstancedMeshes(t, W, D, H) {
     metalness: 0.0,
     transparent: true,
     opacity: GHOST_OPACITY,
-    depthWrite: false,
+    // depthWrite: false,
   });
   t.ghostMesh = makeInstanced(ghostMat, MAX_PIECE_CELLS);
   scene.add(t.ghostMesh);
@@ -942,16 +1786,12 @@ function addLeaderboardEntry(
 /** React hook — exposes scores list and addScore action. */
 function useLeaderboard() {
   const [scores, setScores] = useState(() => lsRead());
-  const { playerName } = useUserStore();
 
-  const addScore = useCallback(
-    (score, mode) => {
-      const updated = addLeaderboardEntry(score, mode, playerName);
-      setScores(updated);
-      return updated;
-    },
-    [playerName],
-  );
+  const addScore = useCallback((score, mode) => {
+    const updated = addLeaderboardEntry(score, mode);
+    setScores(updated);
+    return updated;
+  }, []);
 
   const refresh = useCallback(() => setScores(lsRead()), []);
 

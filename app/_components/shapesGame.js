@@ -113,6 +113,33 @@ const SHAPES = [
     ],
   },
   {
+    id: "crosser",
+    name: "Cruz  ＋ 3",
+    count: 15,
+    color: "#9B59B6", // count 15 → (15-1)%12+1 = 3 → key 3? (15 mod 12 = 3) → #FECA57
+    // Nota: 15 % 12 = 3, pero ajustamos: ((15-1)%12)+1 = 3, correcto.
+    hint: "5 es primo. Un centro y cuatro brazos.",
+    insight: "5 = 5 × 3 ",
+    color: "#FECA57",
+    cubes: [
+      [0, 0, 1],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 0, 2],
+      [0, 1, 1],
+      [0, 1, 0],
+      [1, 1, 1],
+      [2, 1, 1],
+      [0, 1, 2],
+      [0, 2, 1],
+      [0, 2, 0],
+      [1, 2, 1],
+      [2, 2, 1],
+      [0, 2, 2],
+    ],
+  },
+  {
     id: "trio",
     name: "Trío",
     count: 3,
@@ -324,6 +351,20 @@ const SHAPES = [
       [2, 1, 1],
       [2, 0, 1],
     ],
+  },
+  {
+    id: "3x3+5",
+    name: "Rectángulo 3x3+5",
+    count: 14,
+    color: "#FF9F43", // count 14 → key 2: #FF9F43
+    cubes: (() => [
+      ...makeGrid(3, 3),
+      [0, 0, 1],
+      [1, 0, 1],
+      [2, 0, 1],
+      [0, 1, 1],
+      [1, 1, 1],
+    ])(),
   },
   {
     id: "zigzag",

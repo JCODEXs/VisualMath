@@ -5,7 +5,8 @@ import "./globals.css";
 import RewardOverlay from "./_components/rewardOverlay";
 import { usePathname } from "next/navigation";
 import { FocusCyberAudio } from "./soundEngine/ciberFocus";
-import { CyberArcadeAudio } from "./soundEngine/ciberPunkAudio";
+// import { CyberArcadeAudio } from "./soundEngine/ciberPunkAudio";
+import { CyberArcadeAudio } from "./soundEngine/ciberAudioPunk";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -93,7 +94,12 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <audio ref={audioRef} loop preload="auto" />
+        <audio
+          ref={audioRef}
+          src="/audio/albin myers - elektro punk.mp3"
+          loop
+          preload="auto"
+        />
 
         {children}
         <RewardOverlay />

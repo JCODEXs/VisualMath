@@ -18,6 +18,9 @@ export default function Sidebar() {
         <Link href="/Tetris" className="hover:text-white">
           Tetris 3D
         </Link>
+        <Link href="/tetrisChallenge" className="hover:text-white">
+          Tetris Desafio matematico
+        </Link>
         <Link href="/shapesGame" className="hover:text-white">
           Formas
         </Link>

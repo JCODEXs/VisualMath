@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 import Link from "next/link";
 import LeaderboardWidget from "./_components/leaderboardWiget";
+import { useUserStore } from "./store/userStore";
 
 export default function HomePage() {
   const canvasRef = useRef(null);
@@ -206,6 +207,8 @@ export default function HomePage() {
     };
   }, []);
 
+  const { playerName, setPlayerName } = useUserStore();
+
   return (
     <>
       <div
@@ -229,7 +232,18 @@ export default function HomePage() {
 
         {/* Información superior izquierda */}
         <div style={styles.info}>
-          <h1 style={styles.title}>MATH BLOX</h1>
+          <div style={styles.infoRow}>
+            <h1 style={styles.title}>MATH BLOX</h1>
+
+            <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="INGRESA TU NOMBRE"
+              style={styles.infoInput}
+              maxLength={20}
+            />
+          </div>
         </div>
 
         {/* Menú principal */}
@@ -244,6 +258,14 @@ export default function HomePage() {
           </Link>
           <Link
             href="/Tetris"
+            style={{ ...styles.menuBtn, ...styles.menuBtnSecondary }}
+          >
+            <button style={{ ...styles.menuBtn, ...styles.menuBtnSecondary }}>
+              MODO TETRIS
+            </button>
+          </Link>
+          <Link
+            href="/tetrisChallenge"
             style={{ ...styles.menuBtn, ...styles.menuBtnSecondary }}
           >
             <button style={{ ...styles.menuBtn, ...styles.menuBtnSecondary }}>
@@ -319,6 +341,12 @@ const styles = {
     boxShadow: "0 0 20px rgba(0, 255, 255, 0.5)",
     backdropFilter: "blur(5px)",
   },
+  infoRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "20px",
+    flexWrap: "wrap",
+  },
   title: {
     margin: 0,
     fontSize: "2rem",
@@ -329,6 +357,19 @@ const styles = {
     WebkitBackgroundClip: "text",
     WebkitTextFillColor: "transparent",
     textShadow: "0 0 20px #0ff",
+  },
+  infoInput: {
+    background: "rgba(0, 0, 0, 0.5)",
+    border: "2px solid #f0f",
+    borderRadius: "30px",
+    padding: "8px 20px",
+    fontFamily: '"Orbitron", sans-serif',
+    fontSize: "1.2rem",
+    color: "#fff",
+    outline: "none",
+    boxShadow: "0 0 15px #f0f",
+    width: "300px",
+    transition: "all 0.3s ease",
   },
   menu: {
     position: "absolute",
@@ -343,7 +384,7 @@ const styles = {
     background: "transparent",
     border: "2px solid",
     fontFamily: '"Orbitron", sans-serif',
-    fontSize: "1.8rem",
+    fontSize: "1.5rem",
     fontWeight: 700,
     padding: "15px 40px",
     borderRadius: "50px",
